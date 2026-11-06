@@ -78,18 +78,15 @@ const REVISION_SCHEMA = obj({
   },
 });
 
-export class ClaudeLLM implements LLMProvider {
-  id: string;
-  private client: Anthropic;
-  constructor(apiKey: string, private model = config.anthropicModel) {
-    this.client = new Anthropic({ apiKey });
-    this.id = `claude (${model})`;
-  }
+/** Sends one structured request and returns the model's JSON text. */
+export type Transport = (req: { system: string; user: string; jsonSchema: object; effort: "low" | "medium" | "high" }) => Promise<string>;
 
-  private async structured<T>(schema: z.ZodType<T>, jsonSchema: object, system: string, user: string, effort: "low" | "medium" | "high" = "medium"): Promise<T> {
-    // Server-side fallbacks re-run a declined request on a suitable model inside the same call.
+/** Claude through the Anthropic API (structured outputs + server-side refusal fallbacks). */
+export function anthropicTransport(apiKey: string, model = config.anthropicModel): Transport {
+  const client = new Anthropic({ apiKey });
+  return async ({ system, user, jsonSchema, effort }) => {
     const params = {
-      model: this.model,
+      model,
       max_tokens: 16000,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
@@ -97,10 +94,54 @@ export class ClaudeLLM implements LLMProvider {
       messages: [{ role: "user", content: user }],
       output_config: { effort, format: { type: "json_schema", schema: jsonSchema } },
     };
-    const res = (await this.client.beta.messages.create(params as any)) as any;
+    const res = (await client.beta.messages.create(params as any)) as any;
     if (res.stop_reason === "refusal") throw new Error(`Claude declined this request (${res.stop_details?.category ?? "policy"}).`);
     if (res.stop_reason === "max_tokens") throw new Error("Claude's answer was cut off (max_tokens).");
-    const text = (res.content as any[]).filter((b) => b.type === "text").map((b) => b.text).join("");
+    return (res.content as any[]).filter((b) => b.type === "text").map((b) => b.text).join("");
+  };
+}
+
+/** Claude through OpenRouter (one key for many models), with a strict JSON schema response format. */
+export function openrouterTransport(apiKey: string, model = config.openrouterModel): Transport {
+  return async ({ system, user, jsonSchema, effort }) => {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/sibrahimpa1/cutpilot",
+        "X-Title": "CutPilot",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 16000,
+        reasoning: { effort },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        response_format: { type: "json_schema", json_schema: { name: "output", strict: true, schema: jsonSchema } },
+      }),
+    });
+    const j: any = await res.json().catch(() => ({}));
+    if (!res.ok || j.error) throw new Error(`OpenRouter ${res.status}: ${j.error?.message ?? res.statusText}`);
+    const choice = j.choices?.[0];
+    if (choice?.finish_reason === "length") throw new Error("The model's answer was cut off (max_tokens).");
+    const text = String(choice?.message?.content ?? "").trim();
+    // Some routes wrap JSON in a code fence; strip it.
+    return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  };
+}
+
+/** The Claude planner: same prompts and schemas whichever transport carries them. */
+export class ClaudeLLM implements LLMProvider {
+  constructor(
+    public id: string,
+    private send: Transport,
+  ) {}
+
+  private async structured<T>(schema: z.ZodType<T>, jsonSchema: object, system: string, user: string, effort: "low" | "medium" | "high" = "medium"): Promise<T> {
+    const text = await this.send({ system, user, jsonSchema, effort });
     return schema.parse(JSON.parse(text));
   }
 

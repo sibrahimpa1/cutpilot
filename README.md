@@ -87,6 +87,7 @@ Without keys everything runs offline. Add any of these to `.env` and restart; th
 | Key | What it switches on | Offline fallback |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Claude picks moments, writes scripts, plans free-form revisions (`claude-opus-5-5`, structured outputs) | Transparent heuristics: sentence scoring, a script template, a rule-based revision parser |
+| `OPENROUTER_API_KEY` | The same Claude planner through OpenRouter (`OPENROUTER_MODEL`, default `anthropic/claude-opus-5.5`); used when `ANTHROPIC_API_KEY` is not set | as above |
 | `OPENAI_API_KEY` | gpt-4o-mini-tts voice, whisper-1 transcription, gpt-image-1 scene images | macOS `say` / espeak-ng, whisper.cpp, generated scene art |
 | `ELEVENLABS_API_KEY` | ElevenLabs voice (preferred when set) | as above |
 | `PEXELS_API_KEY` | Stock video or photo per scene (free key) | Generated scene art |
@@ -127,7 +128,7 @@ flowchart LR
   W["Worker"] -- claims jobs --> DB
   W --> ENG["Workflow engine<br/>DAG with input-hash cache"]
   ENG --> PR{"Providers"}
-  PR --> LLM["Claude / heuristics"]
+  PR --> LLM["Claude (Anthropic API or OpenRouter) / heuristics"]
   PR --> TTS["ElevenLabs / OpenAI / say / espeak-ng"]
   PR --> STT["whisper.cpp / OpenAI"]
   PR --> VIS["Pexels / gpt-image-1 / scene art"]
@@ -170,7 +171,7 @@ scripts/           demo footage generator, Whisper model download, Docker entryp
 ## Development
 
 ```bash
-pnpm test        # 49 tests: overlays, revisions, heuristics, tracking, speech, render + end-to-end workflow
+pnpm test        # 51 tests: overlays, revisions, heuristics, tracking, speech, render + end-to-end workflow
 pnpm typecheck
 pnpm build
 pnpm demo:footage

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { config } from "../config";
-import { ClaudeLLM, heuristicLLM, type LLMProvider } from "./llm";
+import { anthropicTransport, ClaudeLLM, heuristicLLM, openrouterTransport, type LLMProvider } from "./llm";
 import { commandExists, elevenlabsTTS, espeak, macSay, noSTT, openaiSTT, openaiTTS, silentTTS, whisperCpp, type STTProvider, type TTSProvider } from "./speech";
 import { openaiVisuals, pexelsVisuals, placeholderVisuals, type VisualsProvider } from "./visuals";
 
@@ -29,7 +29,18 @@ function choose<T extends { id: string }>(kind: ProviderStatus["kind"], cands: C
 
 export function resolveProviders() {
   const llm = choose<LLMProvider>("LLM", [
-    { id: "claude", available: () => !!config.anthropicKey, make: () => new ClaudeLLM(config.anthropicKey!), needs: "ANTHROPIC_API_KEY" },
+    {
+      id: "claude",
+      available: () => !!config.anthropicKey,
+      make: () => new ClaudeLLM(`claude (${config.anthropicModel})`, anthropicTransport(config.anthropicKey!)),
+      needs: "ANTHROPIC_API_KEY",
+    },
+    {
+      id: "openrouter",
+      available: () => !!config.openrouterKey,
+      make: () => new ClaudeLLM(`OpenRouter (${config.openrouterModel})`, openrouterTransport(config.openrouterKey!)),
+      needs: "OPENROUTER_API_KEY",
+    },
     { id: "heuristic", available: () => true, make: () => heuristicLLM },
   ]);
   const tts = choose<TTSProvider>("TTS", [

@@ -30,6 +30,12 @@ export const config = {
   get anthropicModel() {
     return env("ANTHROPIC_MODEL") ?? "claude-opus-5-5";
   },
+  get openrouterKey() {
+    return env("OPENROUTER_API_KEY");
+  },
+  get openrouterModel() {
+    return env("OPENROUTER_MODEL") ?? "anthropic/claude-opus-5.5";
+  },
   get openaiKey() {
     return env("OPENAI_API_KEY");
   },

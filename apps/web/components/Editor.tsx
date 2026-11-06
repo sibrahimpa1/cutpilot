@@ -347,7 +347,7 @@ function Chat({ state, render, busy, onChanged }: { state: ProjectState; render:
           <textarea
             className="field min-h-11 resize-none"
             rows={2}
-            placeholder={'e.g. "Drop the part where she says \\"you know\\" and make it square"'}
+            placeholder={"e.g. Drop the part where she says 'you know' and make it square"}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {

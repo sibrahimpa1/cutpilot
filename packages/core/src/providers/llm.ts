@@ -12,7 +12,7 @@ export interface LLMProvider {
     maxClips: number;
     transcripts: { assetId: string; name: string; words: Word[]; duration: number }[];
   }): Promise<MomentSelection>;
-  writeScript(input: { prompt: string; seconds: number; style: string; aspect: string }): Promise<Script>;
+  writeScript(input: { prompt: string; seconds: number; style: string; aspect: string; narration?: "auto" | "on" | "off" }): Promise<Script>;
   planRevision(input: { instruction: string; timeline: Timeline; brief: string }): Promise<RevisionPlan>;
 }
 
@@ -22,7 +22,7 @@ export const heuristicLLM: LLMProvider = {
     return heuristicSelect(i.transcripts, i.brief, i.targetSeconds, i.maxClips);
   },
   async writeScript(i) {
-    return heuristicScript(i.prompt, i.seconds);
+    return heuristicScript(i.prompt, i.seconds, i.narration ?? "auto", i.style);
   },
   async planRevision(i) {
     return heuristicRevision(i.instruction, i.timeline);
@@ -51,7 +51,10 @@ const MOMENTS_SCHEMA = obj({
 
 const SCRIPT_SCHEMA = obj({
   title: str,
-  scenes: { type: "array", items: obj({ narration: str, visual: str, onScreen: str }) },
+  subject: str,
+  look: str,
+  musicPrompt: str,
+  scenes: { type: "array", items: obj({ narration: str, visual: str, onScreen: str, duration: num }) },
 });
 
 const op = (name: string, props: Record<string, unknown> = {}) => obj({ op: { type: "string", enum: [name] }, ...props });
@@ -171,16 +174,27 @@ Rules:
 
   async writeScript(i: Parameters<LLMProvider["writeScript"]>[0]) {
     const words = Math.round(i.seconds * 2.4);
+    const narration =
+      i.narration === "off"
+        ? "There is NO narration: leave every scene's narration empty. The piece is carried by the shots, natural sound and music."
+        : i.narration === "on"
+          ? `Write narration for every scene, about ${words} words in total (${i.seconds}s at a natural pace).`
+          : `Decide whether the idea needs a narrator. Explainers, tips and stories do (about ${words} words in total). Mood pieces, product films, scenery, "make it look cinematic" requests usually do not: then leave every narration empty and let picture, sound and music carry it.`;
     return this.structured(
       Script,
       SCRIPT_SCHEMA,
-      `You write scripts for short narrated videos that are assembled automatically from a voiceover, one visual per scene and burned-in captions.
-- Total narration about ${words} words (${i.seconds}s at a natural pace). 4–7 scenes.
-- Scene 1 is a hook that earns the next 3 seconds. The last scene lands the point or a call to action.
-- "visual": a concrete, literal description a stock-footage search or image model can render (subject, setting, light). No text in the image.
-- "onScreen": at most 6 words, or empty.
-- Plain spoken English; no stage directions inside narration.`,
-      `Idea: ${i.prompt}\nStyle: ${i.style}\nFormat: ${i.aspect}`,
+      `You are a director and writer planning a short video that is produced automatically: an image/video model renders each shot from your "visual" text, a voice actor reads "narration", a music model scores it, and captions are burned in.
+${narration}
+- 3–7 scenes. "duration" is the shot length in seconds (3–8); all durations together ≈ ${i.seconds}s. With narration, the voice timing wins, so keep durations close to how long the line takes to say.
+- "subject": one precise description of the recurring hero (e.g. exact car make, model, colour; a person's look; a place), repeated so every shot shows the same thing. Empty if there is none.
+- "look": one shared visual style for every shot: light, lens, colour grade, film stock. Aim for realism unless asked otherwise.
+- "visual": a literal, filmable shot description for a video model: the subject, what it does, the setting, camera angle and camera movement (e.g. "low tracking shot", "drone pull-back"), time of day. Real places and real products are fine. No text or logos overlaid on screen.
+- "onScreen": at most 6 words of title text, or empty. For cinematic pieces usually empty except maybe the last shot.
+- "musicPrompt": instruments, tempo and mood for an instrumental score that fits the piece and its arc.
+- Scene 1 hooks immediately; the last scene resolves.
+- Narration, when present: plain spoken English, no stage directions.`,
+      `Idea: ${i.prompt}\nStyle: ${i.style}\nFormat: ${i.aspect}\nTarget length: ${i.seconds}s`,
+      "medium",
     );
   }
 

@@ -46,14 +46,37 @@ const SPECS: Record<string, Spec[]> = {
     { key: "seconds", label: "Length (seconds)", type: "number", min: 8, max: 180 },
     { key: "style", label: "Tone & style", type: "text" },
     { key: "aspect", label: "Format", type: "select", options: [{ value: "9:16", label: "9:16 vertical" }, { value: "16:9", label: "16:9 landscape" }, { value: "1:1", label: "1:1 square" }] },
+    {
+      key: "narration",
+      label: "Narration",
+      type: "select",
+      options: [
+        { value: "auto", label: "Let the AI decide" },
+        { value: "on", label: "Voice-over" },
+        { value: "off", label: "None: picture, sound and music" },
+      ],
+      hint: "Cinematic and product pieces usually work best without a narrator.",
+    },
+  ],
+  visuals: [
+    {
+      key: "resolution",
+      label: "AI video resolution",
+      type: "select",
+      options: [{ value: "720p", label: "720p (cheaper, faster)" }, { value: "1080p", label: "1080p" }],
+      hint: "Used when the visuals provider is AI video (OpenRouter). Veo 3.1 Fast costs about $0.10–0.12 per second.",
+    },
+    { key: "nativeAudio", label: "Generate natural sound with each shot (engine, wind, waves…)", type: "checkbox" },
   ],
   assemble_generated: [
     { key: "captionStyle", label: "Captions", type: "select", options: [{ value: "karaoke", label: "Animated word highlight" }, { value: "block", label: "Subtitle block" }, { value: "off", label: "Off" }] },
     { key: "kenBurns", label: "Slow zoom on stills", type: "checkbox" },
+    { key: "transition", label: "Transitions", type: "select", options: [{ value: "crossfade", label: "Crossfade" }, { value: "cut", label: "Hard cut" }] },
   ],
   music: [
-    { key: "source", label: "Music", type: "select", options: opt("generated", "none") },
-    { key: "volume", label: "Volume", type: "range", min: 0, max: 0.5, step: 0.01 },
+    { key: "source", label: "Music", type: "select", options: opt("auto", "ai", "generated", "none") },
+    { key: "prompt", label: "Music prompt (optional, AI music)", type: "textarea" },
+    { key: "volume", label: "Volume", type: "range", min: 0, max: 1, step: 0.01 },
   ],
 };
 
@@ -72,19 +95,34 @@ export function Inspector(props: {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectId = state.project.id;
 
+  // Changes are batched: every field edited within the debounce window is saved together.
+  const pending = useRef<Record<string, any>>({});
+  useEffect(
+    () => () => {
+      // Flush unsaved edits when the inspector closes (e.g. another step is selected).
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (Object.keys(pending.current).length) {
+        api(`/api/projects/${projectId}`, { method: "PATCH", json: { node: { mode: props.mode, id: node.id, params: pending.current } } }).catch(() => {});
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   function set(key: string, v: any) {
-    const next = { ...values, [key]: v };
-    setValues(next);
+    setValues((prev) => ({ ...prev, [key]: v }));
+    pending.current[key] = v;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api(`/api/projects/${projectId}`, { method: "PATCH", json: { node: { mode: props.mode, id: node.id, params: { [key]: v } } } }).then(props.onChanged);
+      const params = pending.current;
+      pending.current = {};
+      api(`/api/projects/${projectId}`, { method: "PATCH", json: { node: { mode: props.mode, id: node.id, params } } }).then(props.onChanged);
     }, 400);
   }
 
   let specs = SPECS[node.type] ?? [];
   if (node.type === "music") {
     const audio = state.assets.filter((a) => a.kind === "audio");
-    specs = specs.map((s) => (s.key === "source" ? { ...s, options: [...opt("generated", "none"), ...audio.map((a) => ({ value: a.id, label: `Upload: ${a.name}` }))] } : s));
+    specs = specs.map((s) => (s.key === "source" ? { ...s, options: [{ value: "auto", label: "Auto (AI if a key is set)" }, { value: "ai", label: "AI composed (Lyria)" }, { value: "generated", label: "Synthesised offline" }, { value: "none", label: "None" }, ...audio.map((a) => ({ value: a.id, label: `Upload: ${a.name}` }))] } : s));
   }
 
   return (
@@ -321,7 +359,7 @@ function Output({ type, output, state }: { type: string; output: any; state: Pro
         <div className="rounded-xl border border-ink-700 bg-ink-900 p-3 text-xs text-ink-300">
           <p className="text-sm text-ink-100">{output.prompt}</p>
           <p className="mt-2 font-mono text-[10px] text-ink-400">
-            {output.seconds}s · {output.aspect} · {output.style}
+            {output.seconds}s · {output.aspect} · {output.style} · narration {output.narration ?? "auto"}
           </p>
         </div>
       );
@@ -366,10 +404,13 @@ function Output({ type, output, state }: { type: string; output: any; state: Pro
       return (
         <div className="space-y-2 text-xs">
           <div className="text-sm font-semibold">{output.title}</div>
+          {output.subject && <p className="text-ink-300"><span className="text-ink-400">Subject:</span> {output.subject}</p>}
+          {output.look && <p className="text-ink-300"><span className="text-ink-400">Look:</span> {output.look}</p>}
+          {output.musicPrompt && <p className="text-ink-300"><span className="text-ink-400">Music:</span> {output.musicPrompt}</p>}
           {output.scenes.map((s: any, i: number) => (
             <div key={i} className="rounded-xl border border-ink-700 bg-ink-900 p-2.5">
-              <div className="font-mono text-[10px] text-ink-400">Scene {i + 1}{s.onScreen ? ` · “${s.onScreen}”` : ""}</div>
-              <p className="mt-1 text-ink-100">{s.narration}</p>
+              <div className="font-mono text-[10px] text-ink-400">Shot {i + 1} · {s.duration ?? "–"}s{s.onScreen ? ` · “${s.onScreen}”` : ""}</div>
+              {s.narration ? <p className="mt-1 text-ink-100">{s.narration}</p> : <p className="mt-1 text-ink-400">No narration</p>}
               <p className="mt-1 text-ink-400 italic">Visual: {s.visual}</p>
             </div>
           ))}
@@ -381,20 +422,20 @@ function Output({ type, output, state }: { type: string; output: any; state: Pro
           {output.scenes.map((s: any, i: number) => (
             <div key={i} className="flex items-center gap-2 text-xs">
               <span className="w-14 font-mono text-ink-400">S{i + 1} {fmtDur(s.duration)}</span>
-              <audio controls src={s.audioUrl} className="h-8 flex-1" />
+              {s.audioUrl ? <audio controls src={s.audioUrl} className="h-8 flex-1" /> : <span className="text-ink-400">No narration on this shot</span>}
             </div>
           ))}
         </div>
       );
     case "visuals":
       return (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {output.scenes.map((s: any, i: number) =>
             s.kind === "video" ? (
-              <video key={i} src={s.pathUrl} muted loop autoPlay playsInline className="aspect-[9/16] w-full rounded-lg bg-black object-cover" />
+              <video key={i} src={s.pathUrl} muted loop autoPlay playsInline className="aspect-video w-full rounded-lg bg-black object-cover" />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
-              <img key={i} src={s.pathUrl} alt={`Scene ${i + 1}`} className="aspect-[9/16] w-full rounded-lg bg-black object-cover" />
+              <img key={i} src={s.pathUrl} alt={`Scene ${i + 1}`} className="aspect-video w-full rounded-lg bg-black object-cover" />
             ),
           )}
         </div>

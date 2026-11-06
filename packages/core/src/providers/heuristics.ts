@@ -121,15 +121,39 @@ export function cleanHook(text: string): string {
 
 export const FILLER_WORDS = ["um", "uh", "umm", "uhh", "erm", "er", "ah", "hmm"];
 
-export function heuristicScript(prompt: string, seconds: number): Script {
+export function heuristicScript(prompt: string, seconds: number, narration: "auto" | "on" | "off" = "auto", style = ""): Script {
   const clean = prompt.trim() || "How to make a great short video";
   const parts = clean.split(/(?<=[.!?])\s+|\n+|;\s*/).map((s) => s.trim().replace(/[.!?]+$/, "")).filter((s) => s.length > 3);
   // The first sentence is the topic; any further sentences are the points to make.
   const topic = parts[0] ?? clean;
   const points = parts.slice(1);
-  const nScenes = Math.max(3, Math.min(7, Math.max(points.length + 2, Math.round(seconds / 6))));
   const short = (s: string, n = 5) => s.split(/\s+/).slice(0, n).join(" ");
-  const scenes: Script["scenes"] = [{ narration: `${topic}. Here's how.`, visual: topic, onScreen: short(topic, 6) }];
+  const musicPrompt = `Instrumental score for a short video: ${topic}. Mood: ${style || "uplifting, modern"}.`;
+
+  // "Generate me a …" with no talking points reads as a mood piece: shots and music, no voice.
+  const moodPiece = narration === "off" || (narration === "auto" && !points.length && /\b(cinematic|footage|shot|drone|b-roll|aesthetic|driving|scenery|montage)\b/i.test(clean));
+  if (moodPiece) {
+    const subject = topic.replace(/^(generate|make|create|show)( me)?( a| an)?\s+/i, "");
+    const angles = [
+      "Wide establishing aerial shot",
+      "Low tracking shot alongside, close to the ground",
+      "Slow close-up detail shot",
+      "Sweeping drone shot pulling away into the horizon",
+      "Side-on tracking shot at speed",
+      "Final wide shot at golden hour",
+    ];
+    const n = Math.max(3, Math.min(6, Math.round(seconds / 5)));
+    return {
+      title: short(subject, 8),
+      subject,
+      look: style || "cinematic, photorealistic, golden hour light, anamorphic lens, rich colour grade",
+      musicPrompt,
+      scenes: angles.slice(0, n).map((a) => ({ narration: "", visual: `${a}: ${subject}`, onScreen: "", duration: Math.max(3, Math.round(seconds / n)) })),
+    };
+  }
+
+  const nScenes = Math.max(3, Math.min(7, Math.max(points.length + 2, Math.round(seconds / 6))));
+  const scenes: Script["scenes"] = [{ narration: `${topic}. Here's how.`, visual: topic, onScreen: short(topic, 6), duration: 4 }];
   const generic = [
     `Start with the one thing that matters most.`,
     `Keep it simple. Small steps, done every day, beat big plans.`,
@@ -139,11 +163,11 @@ export function heuristicScript(prompt: string, seconds: number): Script {
   ];
   for (let i = 0; scenes.length < nScenes - 1; i++) {
     const point = points[i];
-    const narration = point ? `${points.length > 1 ? `${["One", "Two", "Three", "Four", "Five", "Six"][i] ?? "Next"}: ` : ""}${point}.` : generic[i % generic.length];
-    scenes.push({ narration, visual: point ?? narration, onScreen: point ? short(point) : "" });
+    const narr = point ? `${points.length > 1 ? `${["One", "Two", "Three", "Four", "Five", "Six"][i] ?? "Next"}: ` : ""}${point}.` : generic[i % generic.length];
+    scenes.push({ narration: narr, visual: point ?? narr, onScreen: point ? short(point) : "", duration: 4 });
   }
-  scenes.push({ narration: `Try it this week, and follow for more.`, visual: `${topic}, success, celebration`, onScreen: "Try it this week" });
-  return { title: short(topic, 8), scenes };
+  scenes.push({ narration: `Try it this week, and follow for more.`, visual: `${topic}, success, celebration`, onScreen: "Try it this week", duration: 3 });
+  return { title: short(topic, 8), subject: "", look: style, musicPrompt, scenes };
 }
 
 /* ----------------------------- revisions ---------------------------- */

@@ -24,18 +24,18 @@ export function templateFor(mode: Mode): Graph {
       { type: "select_moments", label: "Pick moments", params: { targetSeconds: 40, maxClips: 6 } },
       { type: "assemble_edit", label: "Assemble edit", params: { aspect: "16:9", captionStyle: "karaoke", titleCard: true, padding: 0.15 } },
       { type: "reframe", label: "Reframe", params: { mode: "track" } },
-      { type: "music", label: "Music bed", params: { source: "generated", volume: 0.1 } },
+      { type: "music", label: "Music", params: { source: "auto", volume: 0.1 } },
       { type: "render", label: "Render MP4", params: {} },
     ]);
   }
   return chain([
-    { type: "idea", label: "Idea", params: { prompt: "", seconds: 30, style: "clear, upbeat explainer", aspect: "9:16" } },
+    { type: "idea", label: "Idea", params: { prompt: "", seconds: 30, style: "clear, upbeat explainer", aspect: "9:16", narration: "auto" } },
     { type: "script", label: "Script & scenes", params: {} },
     { type: "voiceover", label: "Voiceover", params: {} },
-    { type: "visuals", label: "Visuals", params: {} },
+    { type: "visuals", label: "Visuals", params: { resolution: "720p", nativeAudio: true } },
     { type: "align_captions", label: "Captions", params: {} },
-    { type: "assemble_generated", label: "Assemble", params: { captionStyle: "karaoke", kenBurns: true } },
-    { type: "music", label: "Music bed", params: { source: "generated", volume: 0.12 } },
+    { type: "assemble_generated", label: "Assemble", params: { captionStyle: "karaoke", kenBurns: true, transition: "crossfade" } },
+    { type: "music", label: "Music", params: { source: "auto" } },
     { type: "render", label: "Render MP4", params: {} },
   ]);
 }
@@ -47,11 +47,11 @@ export const NODE_DESCRIPTIONS: Record<NodeType, string> = {
   assemble_edit: "Builds the edit decision list: clips, title card, captions.",
   reframe: "Crops to the target aspect, following the subject with motion saliency tracking.",
   idea: "What the video is about, how long, and the format.",
-  script: "Claude writes the script: narration, visuals and on-screen text per scene.",
+  script: "Claude writes the shot list: what each shot shows, camera, duration, optional narration and the music brief.",
   voiceover: "Text-to-speech for every scene.",
-  visuals: "One image or stock clip per scene.",
+  visuals: "One shot per scene: AI video (same subject in every shot), AI images, stock footage, or offline art.",
   align_captions: "Word timings for captions, from transcribing the voiceover.",
   assemble_generated: "Builds the edit decision list from scenes, voice and visuals.",
-  music: "Background music, ducked under speech.",
+  music: "Music: composed by AI (Lyria) or synthesised offline; ducked under speech.",
   render: "FFmpeg renders the timeline into an H.264 MP4.",
 };

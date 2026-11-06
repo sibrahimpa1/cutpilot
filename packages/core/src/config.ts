@@ -36,6 +36,18 @@ export const config = {
   get openrouterModel() {
     return env("OPENROUTER_MODEL") ?? "anthropic/claude-opus-5.5";
   },
+  get openrouterVoice() {
+    return env("OPENROUTER_TTS_VOICE") ?? "onyx";
+  },
+  get openrouterTtsModel() {
+    return env("OPENROUTER_TTS_MODEL") ?? "openai/gpt-audio";
+  },
+  get openrouterImageModel() {
+    return env("OPENROUTER_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
+  },
+  get openrouterVideoModel() {
+    return env("OPENROUTER_VIDEO_MODEL") ?? "google/veo-3.1-fast";
+  },
   get openaiKey() {
     return env("OPENAI_API_KEY");
   },

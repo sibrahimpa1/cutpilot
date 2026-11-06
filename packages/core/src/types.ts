@@ -38,6 +38,8 @@ export const Clip = z.object({
   audioSrc: z.string().optional(),
   /** Mute the clip's own audio. */
   muted: z.boolean().optional(),
+  /** Volume of the clip's own sound when an audioSrc (voice) plays over it, e.g. engine and waves under narration. */
+  ambience: z.number().min(0).max(1).optional(),
   /** Slow zoom on stills. */
   kenBurns: z.boolean().optional(),
   /** Loop a video source that is shorter than the clip (stock footage under a long voiceover). */
@@ -77,7 +79,17 @@ export const Timeline = z.object({
       replacements: z.array(z.object({ find: z.string(), replace: z.string() })).default([]),
     })
     .default({ style: "karaoke", replacements: [] }),
-  music: z.object({ src: z.string(), volume: z.number().min(0).max(1) }).nullable().default(null),
+  music: z
+    .object({
+      src: z.string(),
+      volume: z.number().min(0).max(1),
+      /** Lower the music while someone speaks (off for music-led pieces). */
+      duck: z.boolean().optional(),
+    })
+    .nullable()
+    .default(null),
+  /** How clips join: hard cuts, or crossfades of `duration` seconds. */
+  transition: z.object({ type: z.enum(["cut", "crossfade"]), duration: z.number().min(0.1).max(2) }).optional(),
 });
 export type Timeline = z.infer<typeof Timeline>;
 
@@ -85,8 +97,28 @@ export function clipDuration(c: Pick<Clip, "in" | "out">): number {
   return Math.max(0, c.out - c.in);
 }
 
-export function timelineDuration(t: Pick<Timeline, "clips">): number {
-  return t.clips.reduce((s, c) => s + clipDuration(c), 0);
+/** Crossfade length actually used: never more than half of the shortest clip. */
+export function transitionOverlap(t: Pick<Timeline, "clips"> & { transition?: Timeline["transition"] }): number {
+  if (!t.transition || t.transition.type !== "crossfade" || t.clips.length < 2) return 0;
+  const shortest = Math.min(...t.clips.map(clipDuration));
+  return Math.max(0, Math.min(t.transition.duration, shortest / 2));
+}
+
+/** Where each clip starts on the output clock (crossfades overlap neighbouring clips). */
+export function clipStarts(t: Pick<Timeline, "clips"> & { transition?: Timeline["transition"] }): number[] {
+  const overlap = transitionOverlap(t);
+  const starts: number[] = [];
+  let acc = 0;
+  for (const c of t.clips) {
+    starts.push(acc);
+    acc += clipDuration(c) - overlap;
+  }
+  return starts;
+}
+
+export function timelineDuration(t: Pick<Timeline, "clips"> & { transition?: Timeline["transition"] }): number {
+  const sum = t.clips.reduce((s, c) => s + clipDuration(c), 0);
+  return sum - transitionOverlap(t) * Math.max(0, t.clips.length - 1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -184,14 +216,24 @@ export const MomentSelection = z.object({
 export type MomentSelection = z.infer<typeof MomentSelection>;
 
 export const Scene = z.object({
-  narration: z.string(),
+  /** Spoken words for this scene; empty for a music-and-picture shot. */
+  narration: z.string().default(""),
+  /** Literal shot description for an image/video model: subject, action, camera, light. */
   visual: z.string(),
   onScreen: z.string().default(""),
+  /** Shot length when there is no narration to time it (seconds). */
+  duration: z.number().min(1).max(30).default(5),
 });
 export type Scene = z.infer<typeof Scene>;
 
 export const Script = z.object({
   title: z.string(),
+  /** The recurring subject, described identically for every shot (keeps it consistent). */
+  subject: z.string().default(""),
+  /** Shared visual style: lens, light, grade. */
+  look: z.string().default(""),
+  /** Prompt for the music model. */
+  musicPrompt: z.string().default(""),
   scenes: z.array(Scene).min(1),
 });
 export type Script = z.infer<typeof Script>;

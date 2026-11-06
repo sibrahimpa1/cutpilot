@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import path from "node:path";
-import { ASPECT_SIZE, clipDuration, timelineDuration, type Clip, type CropKeyframe, type Timeline } from "../types";
+import { ASPECT_SIZE, clipDuration, clipStarts, timelineDuration, transitionOverlap, type Clip, type CropKeyframe, type Timeline } from "../types";
 import { extractFrame, ffmpeg, probe } from "./ffmpeg";
 import { writeOverlayTrack } from "./overlays";
 
@@ -26,7 +26,7 @@ export function cropCenterExpr(kf: CropKeyframe[]): string {
 /** Video filter chain that turns one source clip into a W×H, 30 fps, yuv420p stream. */
 export function clipVideoFilter(c: Clip, src: SourceInfo | null, W: number, H: number, fps: number): string {
   const D = r3(clipDuration(c));
-  const tail = `setsar=1,format=yuv420p,fps=${fps},tpad=stop_mode=clone:stop_duration=1,trim=duration=${D},setpts=PTS-STARTPTS`;
+  const tail = `setsar=1,format=yuv420p,fps=${fps},tpad=stop_mode=clone:stop_duration=1,trim=duration=${D},setpts=PTS-STARTPTS,settb=AVTB`;
   if (c.kind === "image") {
     if (c.kenBurns) {
       const F = Math.max(1, Math.round(clipDuration(c) * fps));
@@ -89,26 +89,47 @@ export function buildRenderPlan(
     }
     filters.push(`[${vIdx}:v]${clipVideoFilter(c, src, W, H, fps).replace(/\[(bgsrc|fgsrc|bg|fg)\]/g, `[$1${i}]`)}[v${i}]`);
 
-    // Audio for this clip: its own track, a voiceover file, or silence.
-    let aLabel: string;
+    // Audio for this clip: a voiceover (optionally over the clip's own sound), its own track, or silence.
+    const norm = `aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo`;
+    const fit = `apad=whole_dur=${D},atrim=0:${D},asetpts=PTS-STARTPTS`;
+    const ownAudio = c.kind === "video" && src?.hasAudio && !c.muted;
     if (c.audioSrc) {
       const aIdx = input++;
       args.push("-i", c.audioSrc);
-      aLabel = `${aIdx}:a`;
-    } else if (c.kind === "video" && src?.hasAudio && !c.muted) {
-      aLabel = `${vIdx}:a`;
+      if (c.kind === "video" && src?.hasAudio && (c.ambience ?? 0) > 0) {
+        filters.push(`[${vIdx}:a]${norm},volume=${c.ambience}[amb${i}]`);
+        filters.push(`[${aIdx}:a]${norm}[vo${i}]`);
+        filters.push(`[amb${i}][vo${i}]amix=inputs=2:duration=longest:normalize=0,${fit}[a${i}]`);
+      } else {
+        filters.push(`[${aIdx}:a]${norm},${fit}[a${i}]`);
+      }
+    } else if (ownAudio) {
+      filters.push(`[${vIdx}:a]${norm},${c.ambience != null ? `volume=${c.ambience},` : ""}${fit}[a${i}]`);
     } else {
       const aIdx = input++;
       args.push("-f", "lavfi", "-t", String(D), "-i", "anullsrc=r=48000:cl=stereo");
-      aLabel = `${aIdx}:a`;
+      filters.push(`[${aIdx}:a]${norm},${fit}[a${i}]`);
     }
-    filters.push(
-      `[${aLabel}]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad=whole_dur=${D},atrim=0:${D},asetpts=PTS-STARTPTS[a${i}]`,
-    );
     pairs.push(`[v${i}][a${i}]`);
   });
 
-  filters.push(`${pairs.join("")}concat=n=${t.clips.length}:v=1:a=1[cv][ca]`);
+  const overlap = transitionOverlap(t);
+  if (overlap > 0) {
+    // Crossfades: chain xfade/acrossfade, each starting where the next clip begins.
+    const starts = clipStarts(t);
+    let pv = "v0";
+    let pa = "a0";
+    for (let i = 1; i < t.clips.length; i++) {
+      const nv = i === t.clips.length - 1 ? "cv" : `xv${i}`;
+      const na = i === t.clips.length - 1 ? "ca" : `xa${i}`;
+      filters.push(`[${pv}][v${i}]xfade=transition=fade:duration=${r3(overlap)}:offset=${r3(starts[i])}[${nv}]`);
+      filters.push(`[${pa}][a${i}]acrossfade=d=${r3(overlap)}:c1=tri:c2=tri[${na}]`);
+      pv = nv;
+      pa = na;
+    }
+  } else {
+    filters.push(`${pairs.join("")}concat=n=${t.clips.length}:v=1:a=1[cv][ca]`);
+  }
 
   let v = "cv";
   if (opts.overlayList) {
@@ -130,10 +151,15 @@ export function buildRenderPlan(
     filters.push(
       `[${mIdx}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${t.music.volume},atrim=0:${T},afade=t=in:d=1,afade=t=out:st=${fo}:d=1.5[mus]`,
     );
-    // Duck the music whenever someone speaks.
-    filters.push(`[ca]asplit=2[ca1][ca2]`);
-    filters.push(`[mus][ca2]sidechaincompress=threshold=0.03:ratio=6:attack=15:release=350[duck]`);
-    filters.push(`[ca1][duck]amix=inputs=2:duration=first:normalize=0[am]`);
+    if (t.music.duck !== false) {
+      // Duck the music whenever someone speaks.
+      filters.push(`[ca]asplit=2[ca1][ca2]`);
+      filters.push(`[mus][ca2]sidechaincompress=threshold=0.03:ratio=6:attack=15:release=350[duck]`);
+      filters.push(`[ca1][duck]amix=inputs=2:duration=first:normalize=0[am]`);
+    } else {
+      // Music-led piece: score and natural sound sit side by side.
+      filters.push(`[ca][mus]amix=inputs=2:duration=first:normalize=0[am]`);
+    }
     a = "am";
   }
   filters.push(`[${a}]afade=t=in:d=0.15,afade=t=out:st=${fadeOut}:d=0.35,alimiter=limit=0.95[aout]`);

@@ -31,6 +31,8 @@ Two workflows run on one engine. Switch between them at any time inside the same
 | Media | Subject-tracked reframing to 9:16 / 1:1, title card, animated captions, music bed | Voiceover, one visual per scene (stock, generated or offline art), word-timed captions, music |
 | Output | H.264 MP4, any of 16:9, 9:16, 1:1 | H.264 MP4, any of 16:9, 9:16, 1:1 |
 
+**Example (Generate, with an OpenRouter key):** *"Generate me a BMW driving through Croatia near the sea view, make it look cinematic and real, powerful and magical."* Claude decides it needs no narrator, writes a six-shot list with one precise subject (make, model, colour) and a shared look, a hero frame is generated, every shot's first frame is generated from it (same car every time), Veo animates each shot with its own engine and wave sound, Lyria scores it, and the shots are joined with crossfades.
+
 Then, for either mode:
 
 - **Revise by chat.** "Remove the part where he says 'you know' and make it square" becomes edit operations, then a new numbered version.
@@ -87,7 +89,7 @@ Without keys everything runs offline. Add any of these to `.env` and restart; th
 | Key | What it switches on | Offline fallback |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Claude picks moments, writes scripts, plans free-form revisions (`claude-opus-5-5`, structured outputs) | Transparent heuristics: sentence scoring, a script template, a rule-based revision parser |
-| `OPENROUTER_API_KEY` | The same Claude planner through OpenRouter (`OPENROUTER_MODEL`, default `anthropic/claude-opus-5.5`); used when `ANTHROPIC_API_KEY` is not set | as above |
+| `OPENROUTER_API_KEY` | **One key for the full AI production**: the Claude planner, **photoreal AI video per shot with native sound** (Veo 3.1 Fast by default), AI first frames that keep the same subject in every shot, a natural voice (gpt-audio) and composed music (Lyria). Every call's cost is written to the production log | as above, plus generated scene art and a synthesised music bed |
 | `OPENAI_API_KEY` | gpt-4o-mini-tts voice, whisper-1 transcription, gpt-image-1 scene images | macOS `say` / espeak-ng, whisper.cpp, generated scene art |
 | `ELEVENLABS_API_KEY` | ElevenLabs voice (preferred when set) | as above |
 | `PEXELS_API_KEY` | Stock video or photo per scene (free key) | Generated scene art |

@@ -2,7 +2,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { config } from "../config";
-import { ASPECT_SIZE, clipDuration, type CaptionStyle, type Timeline, type Title, type Word } from "../types";
+import { ASPECT_SIZE, clipDuration, clipStarts, type CaptionStyle, type Timeline, type Title, type Word } from "../types";
 
 /* ------------------------------------------------------------------ */
 /* 1. Words on the output clock                                        */
@@ -13,8 +13,9 @@ const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}']+/gu, "");
 /** Map every clip's source-time words onto the final timeline clock, then apply caption replacements. */
 export function timelineWords(t: Timeline): Word[] {
   const out: Word[] = [];
-  let offset = 0;
-  for (const c of t.clips) {
+  const starts = clipStarts(t);
+  t.clips.forEach((c, ci) => {
+    const offset = starts[ci];
     for (const w of c.words ?? []) {
       if (w.end <= c.in || w.start >= c.out) continue;
       const start = offset + Math.max(0, w.start - c.in);
@@ -22,8 +23,7 @@ export function timelineWords(t: Timeline): Word[] {
       if (end - start < 0.02) continue;
       out.push({ text: w.text.trim(), start, end });
     }
-    offset += clipDuration(c);
-  }
+  });
   return applyReplacements(out.filter((w) => w.text), t.captions.replacements);
 }
 

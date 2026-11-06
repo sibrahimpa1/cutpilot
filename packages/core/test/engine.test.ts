@@ -40,6 +40,8 @@ describe.skipIf(!hasFfmpeg)("generate workflow end to end (offline providers)", 
   beforeAll(() => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "cutpilot-e2e-"));
     process.env.DATA_DIR = dir;
+    // Never call paid APIs from tests, even if keys are exported in the shell.
+    for (const k of ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY", "PEXELS_API_KEY"]) process.env[k] = "";
     process.env.LLM_PROVIDER = "heuristic";
     process.env.TTS_PROVIDER = "silent";
     process.env.STT_PROVIDER = "none";

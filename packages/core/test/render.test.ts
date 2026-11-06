@@ -82,3 +82,27 @@ describe.skipIf(!hasFfmpeg)("renderTimeline (FFmpeg integration)", () => {
     expect(progress.at(-1)!).toBeGreaterThan(0.5);
   });
 });
+
+describe("crossfades", () => {
+  it("overlaps clips and chains xfade/acrossfade at the right offsets", async () => {
+    const { clipStarts, timelineDuration } = await import("../src/types");
+    const t = timeline([clip("a", 0, 4), clip("b", 0, 4), clip("c", 0, 3)], { transition: { type: "crossfade", duration: 0.5 } });
+    expect(clipStarts(t)).toEqual([0, 3.5, 7]);
+    expect(timelineDuration(t)).toBe(10);
+    const plan = buildRenderPlan(t, { "/media/a.mp4": { width: 1920, height: 1080, hasAudio: true } }, "/o.mp4");
+    const graph = plan.args[plan.args.indexOf("-filter_complex") + 1];
+    expect(graph).toContain("xfade=transition=fade:duration=0.5:offset=3.5[xv1]");
+    expect(graph).toContain("[xv1][v2]xfade=transition=fade:duration=0.5:offset=7[cv]");
+    expect(graph).toContain("acrossfade=d=0.5");
+    expect(graph).not.toContain("concat=");
+  });
+
+  it("mixes a voice over the clip's own sound and skips ducking for music-led pieces", () => {
+    const t = timeline([clip("a", 0, 4, [], { audioSrc: "/v.wav", ambience: 0.25 })], { music: { src: "/m.mp3", volume: 0.5, duck: false } });
+    const plan = buildRenderPlan(t, { "/media/a.mp4": { width: 1920, height: 1080, hasAudio: true } }, "/o.mp4");
+    const graph = plan.args[plan.args.indexOf("-filter_complex") + 1];
+    expect(graph).toContain("volume=0.25[amb0]");
+    expect(graph).toContain("[amb0][vo0]amix");
+    expect(graph).not.toContain("sidechaincompress");
+  });
+});

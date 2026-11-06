@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { config } from "../config";
 import { anthropicTransport, ClaudeLLM, heuristicLLM, openrouterTransport, type LLMProvider } from "./llm";
 import { commandExists, elevenlabsTTS, espeak, macSay, noSTT, openaiSTT, openaiTTS, silentTTS, whisperCpp, type STTProvider, type TTSProvider } from "./speech";
-import { openaiVisuals, pexelsVisuals, placeholderVisuals, type VisualsProvider } from "./visuals";
+import { openaiVisuals, openrouterVisuals, pexelsVisuals, placeholderVisuals, type VisualsProvider } from "./visuals";
+import { openrouterTTS } from "./openrouter";
 
 export type ProviderStatus = {
   kind: "LLM" | "TTS" | "STT" | "VISUALS";
@@ -46,6 +47,7 @@ export function resolveProviders() {
   const tts = choose<TTSProvider>("TTS", [
     { id: "elevenlabs", available: () => !!config.elevenlabsKey, make: () => elevenlabsTTS(config.elevenlabsKey!, config.elevenlabsVoice), needs: "ELEVENLABS_API_KEY" },
     { id: "openai", available: () => !!config.openaiKey, make: () => openaiTTS(config.openaiKey!), needs: "OPENAI_API_KEY" },
+    { id: "openrouter", available: () => !!config.openrouterKey, make: () => openrouterTTS(config.openrouterKey!), needs: "OPENROUTER_API_KEY" },
     { id: "say", available: () => process.platform === "darwin" && commandExists("say"), make: () => macSay, needs: "macOS" },
     { id: "espeak-ng", available: () => commandExists("espeak-ng"), make: () => espeak, needs: "espeak-ng installed" },
     { id: "silent", available: () => true, make: () => silentTTS },
@@ -61,8 +63,10 @@ export function resolveProviders() {
     { id: "none", available: () => true, make: () => noSTT },
   ]);
   const visuals = choose<VisualsProvider>("VISUALS", [
+    { id: "openrouter-video", available: () => !!config.openrouterKey, make: () => openrouterVisuals(config.openrouterKey!, "video"), needs: "OPENROUTER_API_KEY" },
     { id: "pexels", available: () => !!config.pexelsKey, make: () => pexelsVisuals(config.pexelsKey!), needs: "PEXELS_API_KEY (free)" },
     { id: "openai", available: () => !!config.openaiKey, make: () => openaiVisuals(config.openaiKey!), needs: "OPENAI_API_KEY" },
+    { id: "openrouter-image", available: () => !!config.openrouterKey, make: () => openrouterVisuals(config.openrouterKey!, "image"), needs: "OPENROUTER_API_KEY" },
     { id: "placeholder", available: () => true, make: () => placeholderVisuals },
   ]);
   return {

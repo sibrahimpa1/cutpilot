@@ -76,3 +76,17 @@ describe("heuristicRevision", () => {
     expect(plan.explanation).toMatch(/ANTHROPIC_API_KEY/);
   });
 });
+
+describe("mood pieces", () => {
+  it("plans picture-and-music shots with no narration for cinematic requests", () => {
+    const s = Script.parse(heuristicScript("Generate me a BMW driving through Croatia near the sea, make it look cinematic", 24));
+    expect(s.scenes.every((x) => x.narration === "")).toBe(true);
+    expect(s.subject).toMatch(/BMW/);
+    expect(s.scenes.reduce((a, x) => a + x.duration, 0)).toBeGreaterThanOrEqual(18);
+    expect(s.musicPrompt).toBeTruthy();
+  });
+  it("respects an explicit narration setting", () => {
+    expect(heuristicScript("Three tips. One. Two.", 20, "off").scenes.every((x) => !x.narration)).toBe(true);
+    expect(heuristicScript("Generate me a cinematic drone shot of Split", 20, "on").scenes.some((x) => x.narration)).toBe(true);
+  });
+});

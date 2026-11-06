@@ -6,6 +6,7 @@ import type { Providers } from "../providers";
 import type { Graph, GraphNode, Mode, Timeline } from "../types";
 import { executorFor } from "./nodes";
 import { CancelledError } from "../media/ffmpeg";
+import { setSpendHook } from "../providers/openrouter";
 
 export function topoOrder(g: Graph): GraphNode[] {
   const indeg = new Map(g.nodes.map((n) => [n.id, 0]));
@@ -134,6 +135,12 @@ export async function runWorkflow(projectId: string, mode: Mode, opts: RunOption
     const log = (action: string, detail?: string, actor: "ai" | "system" | "user" = "system") =>
       logEvent({ projectId, actor, tool: `${node.label}`, action, detail: detail ?? null, durationMs: Date.now() - started });
 
+    let spent = 0;
+    const spentOn: string[] = [];
+    setSpendHook((usd, what) => {
+      spent += usd;
+      spentOn.push(`${what} $${usd.toFixed(3)}`);
+    });
     try {
       let output: any;
       let provider: string | undefined;
@@ -160,6 +167,7 @@ export async function runWorkflow(projectId: string, mode: Mode, opts: RunOption
         provider = r.provider;
       }
       outputs[node.id] = output;
+      if (spentOn.length) log("API cost", `$${spent.toFixed(2)}: ${spentOn.join(", ")}`, "system");
       upsertNodeRun(projectId, mode, node.id, {
         status: "done",
         output,
@@ -179,7 +187,10 @@ export async function runWorkflow(projectId: string, mode: Mode, opts: RunOption
       });
       for (const rest of steps.slice(si + 1)) upsertNodeRun(projectId, mode, rest.id, { status: "idle", message: null });
       if (!cancelled) logEvent({ projectId, actor: "system", tool: node.label, action: "Step failed", detail: String(e.message ?? e), durationMs: Date.now() - started });
+      if (spentOn.length) log("API cost", `$${spent.toFixed(2)} before the failure: ${spentOn.join(", ")}`, "system");
       throw e;
+    } finally {
+      setSpendHook(null);
     }
   }
   return { render };

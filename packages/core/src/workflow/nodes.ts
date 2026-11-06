@@ -1,6 +1,8 @@
 import path from "node:path";
 import { getAsset, listAssets, setTranscript, type Asset, type Project } from "../db";
 import { generateMusicBed } from "../media/generate";
+import { config } from "../config";
+import { openrouterMusic } from "../providers/openrouter";
 import { probe } from "../media/ffmpeg";
 import { trackSubject } from "../media/tracking";
 import type { Providers } from "../providers";
@@ -204,11 +206,13 @@ const executors: Record<NodeType, NodeExecutor> = {
   async idea(ctx) {
     const prompt = String(ctx.params.prompt || ctx.project.brief || "").trim();
     if (!prompt) throw new Error("Write the idea in the Idea step first.");
+    const narration = ["on", "off"].includes(String(ctx.params.narration)) ? (ctx.params.narration as "on" | "off") : "auto";
     const out = {
       prompt,
       seconds: Number(ctx.params.seconds ?? 30),
       style: String(ctx.params.style ?? "clear, upbeat explainer"),
       aspect: Aspect.parse(ctx.params.aspect ?? "9:16"),
+      narration,
     };
     return { output: out };
   },
@@ -217,55 +221,89 @@ const executors: Record<NodeType, NodeExecutor> = {
     const idea = need(ctx.inputs.idea, "Run Idea first.");
     ctx.progress(0.1, `Writing script with ${ctx.providers.llm.id}`);
     const script: Script = await ctx.providers.llm.writeScript(idea);
-    ctx.log("Wrote script", `"${script.title}": ${script.scenes.length} scenes, ${script.scenes.map((s) => s.narration).join(" ").split(/\s+/).length} words`, "ai");
+    const words = script.scenes.map((s) => s.narration).join(" ").split(/\s+/).filter(Boolean).length;
+    ctx.log(
+      "Wrote script",
+      `"${script.title}": ${script.scenes.length} shots, ${words ? `${words} words of narration` : "no narration (picture, sound and music)"}${script.subject ? `. Subject: ${script.subject}` : ""}`,
+      "ai",
+    );
     return { output: script, provider: ctx.providers.llm.id };
   },
 
   async voiceover(ctx) {
     const script: Script = need(ctx.inputs.script, "Run Script first.");
-    const scenes: { audio: string; duration: number }[] = [];
+    const scenes: { audio: string | null; duration: number }[] = [];
+    let voiced = 0;
     for (let i = 0; i < script.scenes.length; i++) {
+      const s = script.scenes[i];
+      if (!s.narration.trim()) {
+        scenes.push({ audio: null, duration: s.duration ?? 5 });
+        continue;
+      }
       ctx.progress(i / script.scenes.length, `Voicing scene ${i + 1}/${script.scenes.length}`);
-      const r = await ctx.providers.tts.synth(script.scenes[i].narration, path.join(ctx.dir, `voice_${i}.wav`), ctx.signal);
+      const r = await ctx.providers.tts.synth(s.narration, path.join(ctx.dir, `voice_${i}.wav`), ctx.signal);
       scenes.push({ audio: r.path, duration: r.duration });
+      voiced++;
     }
-    ctx.log("Recorded voiceover", `${scenes.length} takes, ${scenes.reduce((s, x) => s + x.duration, 0).toFixed(1)}s total`);
-    return { output: { scenes }, provider: ctx.providers.tts.id };
+    ctx.log("Recorded voiceover", voiced ? `${voiced} takes, ${scenes.filter((s) => s.audio).reduce((a, x) => a + x.duration, 0).toFixed(1)}s total` : "No narration in this script");
+    return { output: { scenes }, provider: voiced ? ctx.providers.tts.id : "none needed" };
   },
 
   async visuals(ctx) {
     const script: Script = need(ctx.inputs.script, "Run Script first.");
     const aspect = need(ctx.inputs.idea, "Run Idea first.").aspect as Aspect;
-    const out: { path: string; kind: "image" | "video"; credit?: string; duration?: number; provider: string }[] = [];
-    for (let i = 0; i < script.scenes.length; i++) {
-      ctx.progress(i / script.scenes.length, `Visual for scene ${i + 1}/${script.scenes.length}`);
-      try {
-        const v = await ctx.providers.visuals.get(script.scenes[i].visual, i, aspect, ctx.dir, ctx.signal);
-        out.push({ ...v, provider: ctx.providers.visuals.id });
-      } catch (e: any) {
-        if (ctx.signal.aborted) throw e;
-        ctx.log("Visual provider failed, used a scene card", `Scene ${i + 1}: ${e.message}`, "system");
-        const v = await placeholderVisuals.get(script.scenes[i].visual, i, aspect, ctx.dir);
-        out.push({ ...v, provider: placeholderVisuals.id });
+    const voice: { audio: string | null; duration: number }[] = ctx.inputs.voiceover?.scenes ?? [];
+    const p = ctx.providers.visuals;
+    let out: { path: string; kind: "image" | "video"; credit?: string; duration?: number; provider: string }[] = [];
+    if (p.getAll) {
+      // Shots must cover the voice line (plus a beat) or the scripted duration.
+      const shots = script.scenes.map((s, i) => ({ visual: s.visual, seconds: voice[i]?.audio ? voice[i].duration + 0.6 : s.duration ?? 5 }));
+      ctx.progress(0.02, `${p.id}: generating ${shots.length} shots`);
+      const res = await p.getAll(shots, aspect, ctx.dir, {
+        subject: script.subject ?? "",
+        look: script.look ?? "",
+        resolution: String(ctx.params.resolution ?? "720p"),
+        audio: ctx.params.nativeAudio !== false,
+        signal: ctx.signal,
+        onProgress: (d, t, msg) => ctx.progress(d / t, msg),
+        log: (a, d) => ctx.log(a, d, "system"),
+      });
+      out = res.map((v) => ({ ...v, provider: p.id }));
+    } else {
+      for (let i = 0; i < script.scenes.length; i++) {
+        ctx.progress(i / script.scenes.length, `Visual for scene ${i + 1}/${script.scenes.length}`);
+        try {
+          const v = await p.get(script.scenes[i].visual, i, aspect, ctx.dir, ctx.signal);
+          out.push({ ...v, provider: p.id });
+        } catch (e: any) {
+          if (ctx.signal.aborted) throw e;
+          ctx.log("Visual provider failed, used a scene card", `Scene ${i + 1}: ${e.message}`, "system");
+          const v = await placeholderVisuals.get(script.scenes[i].visual, i, aspect, ctx.dir);
+          out.push({ ...v, provider: placeholderVisuals.id });
+        }
       }
     }
-    const credits = out.map((v) => v.credit).filter(Boolean);
-    ctx.log("Created visuals", `${out.length} visuals` + (credits.length ? `. Credits: ${credits.join("; ")}` : ""));
-    return { output: { scenes: out }, provider: ctx.providers.visuals.id };
+    const credits = [...new Set(out.map((v) => v.credit).filter(Boolean))];
+    ctx.log("Created visuals", `${out.filter((v) => v.kind === "video").length} video shots, ${out.filter((v) => v.kind === "image").length} stills` + (credits.length ? `. ${credits.join("; ")}` : ""));
+    return { output: { scenes: out }, provider: p.id };
   },
 
   async align_captions(ctx) {
     const script: Script = need(ctx.inputs.script, "Run Script first.");
-    const voice: { audio: string; duration: number }[] = need(ctx.inputs.voiceover?.scenes, "Run Voiceover first.");
+    const voice: { audio: string | null; duration: number }[] = need(ctx.inputs.voiceover?.scenes, "Run Voiceover first.");
     const stt = ctx.providers.stt;
     const scenes: { words: Word[]; method: string }[] = [];
     for (let i = 0; i < voice.length; i++) {
-      ctx.progress(i / voice.length, `Aligning captions ${i + 1}/${voice.length}`);
       const text = script.scenes[i].narration;
+      if (!voice[i].audio || !text.trim()) {
+        scenes.push({ words: [], method: "no narration" });
+        continue;
+      }
+      ctx.progress(i / voice.length, `Aligning captions ${i + 1}/${voice.length}`);
       let method = "even spacing";
       let words = evenWordTimings(text, voice[i].duration);
       if (stt.id !== "none" && !ctx.providers.tts.id.startsWith("silent")) {
-        const heard = await stt.transcribe(voice[i].audio, ctx.dir, ctx.signal);
+        const heard = await stt.transcribe(voice[i].audio!, ctx.dir, ctx.signal);
         if (heard.length) {
           words = alignScriptToSpeech(text, heard, voice[i].duration);
           method = `aligned to ${stt.id}`;
@@ -273,22 +311,26 @@ const executors: Record<NodeType, NodeExecutor> = {
       }
       scenes.push({ words, method });
     }
-    ctx.log("Aligned captions", `Caption text comes from the script (exact spelling); timings ${scenes[0]?.method ?? "n/a"}`);
-    return { output: { scenes }, provider: stt.id };
+    const voiced = scenes.filter((s) => s.method !== "no narration");
+    ctx.log("Aligned captions", voiced.length ? `Caption text comes from the script (exact spelling); timings ${voiced[0].method}` : "No narration, so no captions");
+    return { output: { scenes }, provider: voiced.length ? stt.id : undefined };
   },
 
   async assemble_generated(ctx) {
     const idea = need(ctx.inputs.idea, "Run Idea first.");
     const script: Script = need(ctx.inputs.script, "Run Script first.");
-    const voice: { audio: string; duration: number }[] = need(ctx.inputs.voiceover?.scenes, "Run Voiceover first.");
+    const voice: { audio: string | null; duration: number }[] = need(ctx.inputs.voiceover?.scenes, "Run Voiceover first.");
     const visuals: { path: string; kind: "image" | "video"; duration?: number }[] = need(ctx.inputs.visuals?.scenes, "Run Visuals first.");
     const caps: { words: Word[] }[] = ctx.inputs.align_captions?.scenes ?? [];
-    const gap = 0.35;
+    const crossfade = ctx.params.transition !== "cut";
+    const xf = crossfade ? 0.6 : 0;
     const clips: Clip[] = [];
     const titles: Timeline["titles"] = [];
     let offset = 0;
     script.scenes.forEach((s, i) => {
-      const d = voice[i].duration + gap;
+      const voiced = !!voice[i]?.audio;
+      // Voiced shots last as long as the line plus a beat (and the crossfade they lose).
+      const d = voiced ? voice[i].duration + 0.35 + xf : Math.max(1.5, s.duration ?? 5);
       const v = visuals[i];
       const isVideo = v.kind === "video";
       clips.push({
@@ -297,16 +339,18 @@ const executors: Record<NodeType, NodeExecutor> = {
         src: v.path,
         in: 0,
         out: d,
-        audioSrc: voice[i].audio,
-        muted: true,
-        loop: isVideo && (v.duration ?? 0) < d,
+        ...(voiced ? { audioSrc: voice[i].audio! } : {}),
+        // Generated footage keeps its own sound: full on music-led shots, low under a voice.
+        muted: !isVideo,
+        ambience: isVideo ? (voiced ? 0.25 : 0.9) : undefined,
+        loop: isVideo && (v.duration ?? 0) < d - 0.05,
         kenBurns: !isVideo && ctx.params.kenBurns !== false,
-        words: caps[i]?.words ?? evenWordTimings(s.narration, voice[i].duration),
-        label: `Scene ${i + 1}`,
+        words: voiced ? (caps[i]?.words ?? evenWordTimings(s.narration, voice[i].duration)) : [],
+        label: `Shot ${i + 1}`,
         reason: s.visual,
       });
       if (s.onScreen) titles.push({ text: s.onScreen, start: offset, end: offset + Math.min(d, 2.8), position: "top" });
-      offset += d;
+      offset += d - xf;
     });
     const timeline: Timeline = {
       version: 1,
@@ -317,8 +361,9 @@ const executors: Record<NodeType, NodeExecutor> = {
       titles,
       captions: { style: CaptionStyle.parse(ctx.params.captionStyle ?? "karaoke"), replacements: [] },
       music: null,
+      transition: crossfade ? { type: "crossfade", duration: xf } : { type: "cut", duration: 0.5 },
     };
-    ctx.log("Assembled video", `${clips.length} scenes, ${timelineDuration(timeline).toFixed(1)}s, ${idea.aspect}`);
+    ctx.log("Assembled video", `${clips.length} shots, ${timelineDuration(timeline).toFixed(1)}s, ${idea.aspect}, ${crossfade ? "crossfades" : "hard cuts"}`);
     return { output: { timeline } };
   },
 
@@ -328,24 +373,47 @@ const executors: Record<NodeType, NodeExecutor> = {
 
   async music(ctx) {
     const t = upstreamTimeline(ctx);
-    const source = String(ctx.params.source ?? "generated");
-    const volume = Math.min(1, Math.max(0, Number(ctx.params.volume ?? 0.1)));
+    let source = String(ctx.params.source ?? "auto");
+    if (source === "auto") source = config.openrouterKey ? "ai" : "generated";
+    const speech = t.clips.some((c) => c.audioSrc || (c.kind === "video" && (c.words?.length ?? 0) > 0));
+    const volume = ctx.params.volume != null && ctx.params.volume !== "" ? Math.min(1, Math.max(0, Number(ctx.params.volume))) : speech ? 0.12 : 0.55;
     if (source === "none") {
       t.music = null;
       return { output: { timeline: t } };
     }
     let src: string;
+    let provider = "uploaded";
+    const seconds = timelineDuration(t);
+    if (source === "ai") {
+      const script: Script | undefined = ctx.inputs.script;
+      const prompt =
+        String(ctx.params.prompt ?? "").trim() ||
+        script?.musicPrompt ||
+        `Instrumental background score for: ${ctx.project.brief || t.title}. ${speech ? "Understated, leaves room for a voice." : "Cinematic, with an arc."}`;
+      ctx.progress(0.1, "Composing music with Lyria");
+      try {
+        const r = await openrouterMusic(config.openrouterKey!, prompt, seconds, path.join(ctx.dir, "music.mp3"), ctx.signal);
+        src = r.path;
+        provider = r.model;
+        ctx.log("Composed music", `${r.model}: ${prompt}`, "ai");
+      } catch (e: any) {
+        if (ctx.signal.aborted) throw e;
+        ctx.log("AI music failed, used the generated bed", e.message, "system");
+        source = "generated";
+      }
+    }
     if (source === "generated") {
       ctx.progress(0.2, "Synthesising music bed");
       const seed = [...ctx.project.id].reduce((s, ch) => s + ch.charCodeAt(0), 0);
       src = await generateMusicBed(path.join(ctx.dir, "music.wav"), 32, seed, ctx.signal);
-    } else {
+      provider = "FFmpeg synth";
+    } else if (source !== "ai") {
       const a = need(getAsset(source), `Music asset ${source} not found.`);
       src = a.path;
     }
-    t.music = { src, volume };
-    ctx.log("Added music", `${source === "generated" ? "Generated ambient bed" : "Uploaded track"} at ${Math.round(volume * 100)}%, ducked under speech`);
-    return { output: { timeline: t }, provider: source === "generated" ? "FFmpeg synth" : "uploaded" };
+    t.music = { src: src!, volume, duck: speech };
+    ctx.log("Added music", `${provider} at ${Math.round(volume * 100)}%${speech ? ", ducked under speech" : ", mixed with the natural sound"}`);
+    return { output: { timeline: t }, provider };
   },
 
   async render() {

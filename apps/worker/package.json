@@ -1,0 +1,13 @@
+{
+  "name": "@cutpilot/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false --disable-warning=ExperimentalWarning src/index.ts",
+    "start": "tsx --disable-warning=ExperimentalWarning src/index.ts"
+  },
+  "dependencies": {
+    "@cutpilot/core": "workspace:*"
+  }
+}

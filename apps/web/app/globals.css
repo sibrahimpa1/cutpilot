@@ -1,0 +1,141 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+@theme {
+  --color-ink-950: #07080c;
+  --color-ink-900: #0b0d13;
+  --color-ink-850: #10131b;
+  --color-ink-800: #151924;
+  --color-ink-700: #1f2432;
+  --color-ink-600: #2b3142;
+  --color-ink-400: #7d859c;
+  --color-ink-300: #a3abc0;
+  --color-ink-100: #e7eaf2;
+  --color-edit: #2dd4bf;
+  --color-gen: #e879f9;
+  --color-accent: #8b7bff;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, monospace;
+}
+
+html,
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+}
+
+body {
+  background-image:
+    radial-gradient(900px 500px at 10% -10%, rgba(139, 123, 255, 0.12), transparent 60%),
+    radial-gradient(700px 400px at 100% 0%, rgba(45, 212, 191, 0.07), transparent 60%);
+  background-attachment: fixed;
+}
+
+.panel {
+  background: color-mix(in oklab, var(--color-ink-850) 92%, transparent);
+  border: 1px solid var(--color-ink-700);
+  border-radius: 14px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 10px;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  border: 1px solid var(--color-ink-600);
+  background: var(--color-ink-800);
+  color: var(--color-ink-100);
+}
+.btn:hover {
+  background: var(--color-ink-700);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #8b7bff, #6d5cf5);
+  color: white;
+  box-shadow: 0 6px 24px -8px rgba(139, 123, 255, 0.7);
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, #9a8cff, #7a6af7);
+}
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.btn-ghost:hover {
+  background: var(--color-ink-800);
+}
+
+.field {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--color-ink-600);
+  background: var(--color-ink-900);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.875rem;
+  color: var(--color-ink-100);
+  outline: none;
+}
+.field:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(139, 123, 255, 0.18);
+}
+.label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-400);
+  margin-bottom: 0.35rem;
+}
+
+/* React Flow, dark */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: #3a4157;
+  --xy-edge-stroke-width: 2;
+  --xy-controls-button-background-color: #151924;
+  --xy-controls-button-background-color-hover: #1f2432;
+  --xy-controls-button-color: #a3abc0;
+  --xy-controls-button-border-color: #2b3142;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__edge.animated path {
+  stroke: var(--color-accent);
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #232838;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}

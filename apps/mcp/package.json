@@ -1,0 +1,14 @@
+{
+  "name": "@cutpilot/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx --disable-warning=ExperimentalWarning src/index.ts"
+  },
+  "dependencies": {
+    "@cutpilot/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "zod": "^4.1.0"
+  }
+}

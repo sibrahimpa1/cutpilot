@@ -1,0 +1,40 @@
+{
+  "name": "cutpilot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI video workflow: edit real footage from a brief, or generate a video from an idea. Claude plans, FFmpeg renders real MP4s.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Senka Ibrahimpa\u0161i\u0107 <sibrahimpa1@gmail.com>",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n web,worker -c cyan,magenta \"pnpm --filter @cutpilot/web dev\" \"pnpm --filter @cutpilot/worker dev\"",
+    "build": "pnpm --filter @cutpilot/web build",
+    "start": "concurrently -k -n web,worker \"pnpm --filter @cutpilot/web start\" \"pnpm --filter @cutpilot/worker start\"",
+    "worker": "pnpm --filter @cutpilot/worker start",
+    "mcp": "pnpm --silent --filter @cutpilot/mcp start",
+    "test": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest run",
+    "typecheck": "tsc -p packages/core && tsc -p apps/worker && tsc -p apps/mcp",
+    "models:whisper": "bash scripts/download-whisper-model.sh",
+    "demo:footage": "tsx scripts/make-demo-footage.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.0",
+    "@cutpilot/core": "workspace:*"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@resvg/resvg-js",
+      "esbuild",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

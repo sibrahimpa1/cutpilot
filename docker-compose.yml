@@ -1,0 +1,27 @@
+# docker compose up --build   →   http://localhost:3210
+services:
+  web:
+    build: .
+    ports:
+      - "3210:3210"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      WHISPER_AUTO_DOWNLOAD: "0" # the worker downloads it
+    volumes:
+      - cutpilot-data:/app/data
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["pnpm", "--filter", "@cutpilot/worker", "start"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - cutpilot-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cutpilot-data:

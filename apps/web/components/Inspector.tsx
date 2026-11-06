@@ -432,7 +432,17 @@ function Output({ type, output, state }: { type: string; output: any; state: Pro
         <div className="grid grid-cols-2 gap-2">
           {output.scenes.map((s: any, i: number) =>
             s.kind === "video" ? (
-              <video key={i} src={s.pathUrl} muted loop autoPlay playsInline className="aspect-video w-full rounded-lg bg-black object-cover" />
+              <video
+                key={i}
+                src={s.pathUrl}
+                poster={thumbUrl(s.path, Math.min(1.5, (s.duration ?? 2) / 2))}
+                muted
+                loop
+                autoPlay
+                playsInline
+                title={s.credit}
+                className="aspect-video w-full rounded-lg bg-black object-cover"
+              />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img key={i} src={s.pathUrl} alt={`Scene ${i + 1}`} className="aspect-video w-full rounded-lg bg-black object-cover" />

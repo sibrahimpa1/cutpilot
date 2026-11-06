@@ -210,6 +210,7 @@ pnpm test        # 51 tests: overlays, revisions, heuristics, tracking, speech, 
 pnpm typecheck
 pnpm build
 pnpm demo:footage
+scripts/make-showcase.sh <16x9.mp4> <9x16.mp4>   # rebuild the README showcase media
 ```
 
 The end-to-end test runs the full Generate workflow with offline providers, renders an MP4, checks caching and single-step re-runs, applies a revision and reads the production log.
